@@ -140,6 +140,30 @@ class HomePage extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 30),
+
+            // Tombol ke Monitoring Screen - FITUR BARU
+            ElevatedButton.icon(
+              onPressed: () {
+                Get.toNamed('/monitoring');
+              },
+              icon: const Icon(Icons.monitor, size: 28),
+              label: const Text('AUTO SCREENSHOT MONITOR'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 30,
+                  vertical: 15,
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+                elevation: 5,
+              ),
+            ),
+
             const SizedBox(height: 20),
 
             // preview thumbnails dari captures (reaktif) — horizontal scroll dengan Scrollbar

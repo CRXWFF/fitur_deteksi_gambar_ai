@@ -1,0 +1,726 @@
+================================================================================
+          DOKUMENTASI LENGKAP - APLIKASI MONITORING & SCREEN CAPTURE
+================================================================================
+
+📱 NAMA APLIKASI: Reflvy - Fitur Deteksi Gambar AI
+🎯 TUJUAN: Monitoring aplikasi yang sedang dibuka + capture screenshot full screen
+          setiap 5 detik, lalu kirim ke AI untuk dideteksi
+
+================================================================================
+                            1. ARSITEKTUR APLIKASI
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          FLUTTER (DART) - UI LAYER                       │
+│  - main.dart: Entry point aplikasi                                      │
+│  - monitoring_screen.dart: UI untuk monitoring                          │
+│  - controllers/: State management dengan GetX                           │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↕️ (MethodChannel)
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      FLUTTER SERVICES (DART) - BRIDGE                    │
+│  - screen_capture_service.dart: Bridge untuk screen capture             │
+│  - app_detection_service.dart: Bridge untuk deteksi app                 │
+│  - auto_screenshot_service.dart: Orchestrator (timer & save)            │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↕️ (Platform Channel)
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    NATIVE ANDROID (KOTLIN) - NATIVE API                  │
+│  - MainActivity.kt: Handler MethodChannel calls                         │
+│  - ScreenCaptureHelper.kt: MediaProjection untuk capture full screen    │
+│  - AppDetectionHelper.kt: UsageStatsManager untuk deteksi app           │
+│  - ScreenCaptureService.kt: Foreground Service (required Android 14+)   │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↕️
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         ANDROID SYSTEM APIs                              │
+│  - MediaProjection API: Capture full screen                             │
+│  - UsageStatsManager API: Deteksi app yang aktif                        │
+│  - Foreground Service: Keep service running                             │
+└─────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+                        2. LIBRARY & PACKAGES YANG DIGUNAKAN
+================================================================================
+
+📦 FLUTTER PACKAGES (pubspec.yaml):
+────────────────────────────────────────────────────────────────────────────
+
+1. get: ^4.6.6
+   ├─ Fungsi: State management & dependency injection
+   ├─ Digunakan untuk: 
+   │  • Reactive state (Rx variables)
+   │  • GetX Controllers (AutoScreenshotService, dll)
+   │  • Navigation & Snackbar
+   └─ Konsep: Reactive programming, Observer pattern
+
+2. path_provider: ^2.1.1
+   ├─ Fungsi: Akses path storage Android
+   ├─ Digunakan untuk: Dapatkan folder untuk save screenshot
+   │  • getExternalStorageDirectory() → /storage/emulated/0/Android/data/.../
+   └─ Konsep: File system abstraction
+
+3. permission_handler: ^11.1.0
+   ├─ Fungsi: Request & check permissions
+   ├─ Digunakan untuk: 
+   │  • Check & request WRITE_EXTERNAL_STORAGE
+   │  • Check PACKAGE_USAGE_STATS permission
+   └─ Konsep: Runtime permissions (Android 6.0+)
+
+4. image: ^4.1.3
+   ├─ Fungsi: Manipulasi gambar (resize, crop, compress)
+   ├─ Digunakan untuk: (Optional) Process image sebelum save
+   └─ Konsep: Image processing library
+
+5. intl: ^0.18.1
+   ├─ Fungsi: Formatting date/time & internationalization
+   ├─ Digunakan untuk: Format timestamp untuk filename
+   │  • DateFormat('HHmmss_SSS').format(DateTime.now())
+   │  • Contoh: screenshot_153045_123_TikTok.png
+   └─ Konsep: Internationalization (i18n)
+
+
+🔧 NATIVE ANDROID APIs (Kotlin):
+────────────────────────────────────────────────────────────────────────────
+
+1. MediaProjection API
+   ├─ Package: android.media.projection.MediaProjection
+   ├─ Fungsi: Capture FULL SCREEN (termasuk app lain, system UI, dll)
+   ├─ Komponen:
+   │  • MediaProjectionManager: Service untuk request permission
+   │  • MediaProjection: Object untuk akses screen
+   │  • VirtualDisplay: Display virtual untuk mirror screen
+   │  • ImageReader: Reader untuk baca pixel data
+   └─ Konsep: Screen mirroring & frame capturing
+
+2. UsageStatsManager API
+   ├─ Package: android.app.usage.UsageStatsManager
+   ├─ Fungsi: Track aplikasi yang digunakan user
+   ├─ Method:
+   │  • queryUsageStats(): List app yang dipakai dalam rentang waktu
+   │  • Ambil app paling recent berdasarkan lastTimeUsed
+   └─ Konsep: App usage tracking & analytics
+
+3. ImageReader & Image
+   ├─ Package: android.media.ImageReader, android.media.Image
+   ├─ Fungsi: Baca pixel data dari surface
+   ├─ Format: RGBA_8888 (32-bit color)
+   ├─ Buffer: 3 images (untuk menghindari "no image available")
+   └─ Konsep: Low-level graphics buffer
+
+4. VirtualDisplay
+   ├─ Package: android.hardware.display.VirtualDisplay
+   ├─ Fungsi: Display virtual yang mirror screen fisik
+   ├─ Flag: VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR
+   └─ Konsep: Display management
+
+5. Foreground Service
+   ├─ Package: android.app.Service
+   ├─ Fungsi: Service yang tetap running bahkan app di background
+   ├─ Required: Android 14+ wajib untuk MediaProjection
+   ├─ Type: FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+   └─ Konsep: Background processing & notifications
+
+6. MethodChannel
+   ├─ Package: io.flutter.plugin.common.MethodChannel
+   ├─ Fungsi: Bridge komunikasi Flutter ↔️ Native Android
+   ├─ Channel names:
+   │  • "com.reflvy.app/screen_capture"
+   │  • "com.reflvy.app/app_detection"
+   └─ Konsep: Platform channel communication
+
+7. Bitmap & ByteArray
+   ├─ Package: android.graphics.Bitmap
+   ├─ Fungsi: Convert pixel data → PNG image
+   ├─ Flow: Image → Bitmap → PNG ByteArray → Flutter
+   └─ Konsep: Image encoding & compression
+
+================================================================================
+                          3. ALUR KERJA APLIKASI
+================================================================================
+
+🚀 FLOW LENGKAP - START MONITORING:
+────────────────────────────────────────────────────────────────────────────
+
+[1] USER KLIK TOMBOL "START MONITORING" di UI
+     ↓
+[2] Flutter: AutoScreenshotService.startAutoScreenshot()
+     ↓
+[3] Flutter: ScreenCaptureService.startCapture()
+     │ → Call MethodChannel: platform.invokeMethod('startCapture')
+     ↓
+[4] Android: MainActivity menerima call via MethodChannel
+     │ → Simpan pendingCaptureResult untuk async response
+     │ → Call requestMediaProjectionPermission()
+     ↓
+[5] Android: Start Foreground Service (WAJIB Android 14+)
+     │ → Intent ke ScreenCaptureService
+     │ → Service create notification & startForeground()
+     ↓
+[6] Android: Delay 500ms (tunggu service ready)
+     ↓
+[7] Android: Launch permission dialog
+     │ → projectionManager.createScreenCaptureIntent()
+     │ → startActivityForResult(intent, REQUEST_CODE_SCREEN_CAPTURE)
+     ↓
+[8] SYSTEM MENAMPILKAN DIALOG: "Start capturing everything on your screen?"
+     │ Option: [Cancel] [Start now]
+     ↓
+[9] USER KLIK "START NOW"
+     ↓
+[10] Android: onActivityResult() dipanggil dengan RESULT_OK
+     │ → Get MediaProjection: projectionManager.getMediaProjection(RESULT_OK, data)
+     │ → Call ScreenCaptureHelper.startCapture(mediaProjection)
+     ↓
+[11] Android: ScreenCaptureHelper.startCapture()
+     │ [11.1] Get screen dimensions via WindowManager.getRealMetrics()
+     │        • screenWidth, screenHeight, screenDensity
+     │
+     │ [11.2] Create ImageReader:
+     │        • Format: PixelFormat.RGBA_8888 (32-bit color)
+     │        • Buffer: 3 images
+     │        • Listener: Log saat image available
+     │
+     │ [11.3] Create VirtualDisplay:
+     │        • Name: "ScreenCapture"
+     │        • Size: match screen size
+     │        • Flag: VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR
+     │        • Surface: imageReader.surface
+     │
+     │ [11.4] VirtualDisplay mulai render screen → ImageReader
+     ↓
+[12] Android: Response ke Flutter via pendingCaptureResult.success(true)
+     ↓
+[13] Flutter: ScreenCaptureService menerima result = true
+     ↓
+[14] Flutter: AutoScreenshotService melanjutkan setup:
+     │ → Create session folder (dengan timestamp)
+     │ → Reset counters
+     │ → Start Timer.periodic(5 seconds)
+     │ → Langsung capture pertama (tanpa delay)
+     ↓
+[15] Flutter: Timer trigger _captureAndSave() setiap 5 detik
+     ↓
+     └──→ [LOOP SETIAP 5 DETIK] ───────────────────────────────────────┐
+                                                                         │
+┌────────────────────────────────────────────────────────────────────────┘
+│
+│ 📸 FLOW CAPTURE & SAVE (dipanggil setiap 5 detik):
+│ ────────────────────────────────────────────────────────────────────────
+│
+├─→ [A] Flutter: AppDetectionService.getCurrentApp()
+│    │ → Call MethodChannel: platform.invokeMethod('getCurrentApp')
+│    ↓
+│   Android: AppDetectionHelper.getCurrentAppName()
+│    │ [A.1] Get UsageStatsManager
+│    │ [A.2] Query usage stats dari 1 jam lalu sampai sekarang
+│    │ [A.3] Loop semua apps, cari yang paling recent (lastTimeUsed terbesar)
+│    │ [A.4] Get app name dari PackageManager
+│    │ [A.5] Return "TikTok" / "YouTube" / dll
+│    ↓
+│   Flutter: Terima app name (contoh: "TikTok")
+│    ↓
+├─→ [B] Flutter: ScreenCaptureService.captureFrame()
+│    │ → Call MethodChannel: platform.invokeMethod('captureFrame')
+│    ↓
+│   Android: MainActivity.captureFrame()
+│    │ → Delegate ke ScreenCaptureHelper.captureFrame()
+│    ↓
+│   Android: ScreenCaptureHelper.captureFrame()
+│    │ [B.1] Check: imageReader != null && virtualDisplay != null
+│    │       ├─ false: return null (belum ready)
+│    │       └─ true: lanjut
+│    │
+│    │ [B.2] imageReader.acquireLatestImage()
+│    │       ├─ null: VirtualDisplay belum render frame → return null
+│    │       └─ Image object: lanjut
+│    │
+│    │ [B.3] Extract pixel data dari Image:
+│    │       • image.planes[0].buffer (ByteBuffer)
+│    │       • pixelStride, rowStride (untuk layout pixel)
+│    │
+│    │ [B.4] Create Bitmap dari pixel data:
+│    │       • Bitmap.createBitmap(width, height, ARGB_8888)
+│    │       • bitmap.copyPixelsFromBuffer(buffer)
+│    │
+│    │ [B.5] Crop padding jika ada:
+│    │       • rowPadding = rowStride - pixelStride * width
+│    │       • Bitmap.createBitmap(bitmap, 0, 0, width, height)
+│    │
+│    │ [B.6] Compress ke PNG:
+│    │       • ByteArrayOutputStream()
+│    │       • bitmap.compress(PNG, 100, stream)
+│    │       • val pngBytes = stream.toByteArray()
+│    │
+│    │ [B.7] Cleanup:
+│    │       • bitmap.recycle()
+│    │       • image.close() (penting! free buffer)
+│    │
+│    │ [B.8] Return pngBytes ke Flutter
+│    ↓
+│   Flutter: Terima imageBytes (Uint8List)
+│    ↓
+├─→ [C] Flutter: Save ke file
+│    │ [C.1] Generate filename:
+│    │       • timestamp = DateFormat('HHmmss_SSS').format(DateTime.now())
+│    │       • filename = "screenshot_153045_123_TikTok.png"
+│    │
+│    │ [C.2] Path lengkap:
+│    │       • $sessionFolder/$filename
+│    │       • Contoh: /storage/.../Reflvy_Screenshots/2024-11-02_15-30-00/screenshot_153045_123_TikTok.png
+│    │
+│    │ [C.3] Write file:
+│    │       • File(filePath).writeAsBytes(imageBytes)
+│    │
+│    │ [C.4] Add metadata ke list:
+│    │       • timestamp, app_name, file_path, file_size
+│    │
+│    │ [C.5] Increment counter:
+│    │       • screenshotCount++
+│    │
+│    │ [C.6] Log success:
+│    │       • "✅ Screenshot #1 saved: screenshot_153045_123_TikTok.png"
+│    ↓
+└───→ [TUNGGU 5 DETIK] → REPEAT dari [A]
+
+
+⏹️ FLOW STOP MONITORING:
+────────────────────────────────────────────────────────────────────────────
+
+[1] USER KLIK TOMBOL "STOP MONITORING"
+     ↓
+[2] Flutter: AutoScreenshotService.stopAutoScreenshot()
+     │ → Cancel Timer
+     │ → Call ScreenCaptureService.stopCapture()
+     ↓
+[3] Flutter: ScreenCaptureService.stopCapture()
+     │ → Call MethodChannel: platform.invokeMethod('stopCapture')
+     ↓
+[4] Android: MainActivity.stopCapture()
+     │ [4.1] ScreenCaptureHelper.stopCapture()
+     │       • virtualDisplay.release()
+     │       • imageReader.close()
+     │       • mediaProjection.stop()
+     │
+     │ [4.2] Stop Foreground Service:
+     │       • stopService(ScreenCaptureService)
+     ↓
+[5] Flutter: Update UI
+     │ → isRecording = false
+     │ → Show summary (total screenshots, folder path)
+
+================================================================================
+                        4. KONSEP & PATTERN YANG DIGUNAKAN
+================================================================================
+
+🎨 DESIGN PATTERNS:
+────────────────────────────────────────────────────────────────────────────
+
+1. BRIDGE PATTERN (Platform Channel)
+   ├─ Masalah: Flutter tidak bisa akses Android API langsung
+   ├─ Solusi: MethodChannel sebagai bridge
+   ├─ Implementasi:
+   │  • Flutter (Dart) ←→ MethodChannel ←→ Native (Kotlin)
+   │  • Async communication dengan Future/Result
+   └─ Benefit: Separation of concerns, platform independence
+
+2. SERVICE LAYER PATTERN
+   ├─ Layer:
+   │  • UI Layer (Screens/Widgets)
+   │  • Service Layer (Business logic)
+   │  • Data Layer (Native APIs)
+   ├─ Implementasi:
+   │  • AutoScreenshotService: Orchestrator
+   │  • ScreenCaptureService: Bridge
+   │  • AppDetectionService: Bridge
+   └─ Benefit: Loose coupling, testability
+
+3. OBSERVER PATTERN (GetX Reactive)
+   ├─ Konsep: UI observe state changes
+   ├─ Implementasi:
+   │  • RxBool isRecording
+   │  • RxInt screenshotCount
+   │  • RxString currentApp
+   │  • RxList screenshots
+   ├─ UI: Obx(() => Text('${controller.screenshotCount}'))
+   └─ Benefit: Automatic UI updates, no setState()
+
+4. HELPER PATTERN
+   ├─ Class: ScreenCaptureHelper, AppDetectionHelper
+   ├─ Fungsi: Encapsulate native API logic
+   └─ Benefit: Code reusability, single responsibility
+
+5. TIMER PATTERN
+   ├─ Konsep: Periodic execution
+   ├─ Implementasi: Timer.periodic(Duration(seconds: 5), callback)
+   └─ Benefit: Automatic scheduling, easy cancellation
+
+
+🧠 KONSEP FUNDAMENTAL:
+────────────────────────────────────────────────────────────────────────────
+
+1. ASYNC PROGRAMMING
+   ├─ Dart: async/await, Future
+   ├─ Kotlin: Callback, Handler
+   ├─ Contoh:
+   │  • Future<bool> startCapture() async { ... }
+   │  • val result = await platform.invokeMethod('startCapture')
+   └─ Benefit: Non-blocking operations
+
+2. PLATFORM CHANNEL COMMUNICATION
+   ├─ MethodChannel: Method calls (with return value)
+   ├─ Message format: Binary serialization
+   ├─ Data types: String, int, bool, List, Map, Uint8List
+   └─ Konsep: Cross-platform interop
+
+3. MEMORY MANAGEMENT
+   ├─ Android: Manual cleanup (recycle Bitmap, close Image)
+   ├─ Flutter: Garbage collection
+   ├─ Penting:
+   │  • image.close() → free buffer
+   │  • bitmap.recycle() → free native memory
+   └─ Masalah jika tidak: Memory leak
+
+4. PERMISSIONS MODEL (Android 6.0+)
+   ├─ Normal permissions: Auto granted
+   ├─ Dangerous permissions: Request at runtime
+   ├─ Special permissions: User harus buka Settings
+   │  • PACKAGE_USAGE_STATS
+   └─ Konsep: Privacy & security
+
+5. FOREGROUND SERVICE
+   ├─ Tujuan: Keep service alive
+   ├─ Requirement: Notification visible
+   ├─ Android 14+: Wajib untuk MediaProjection
+   └─ Konsep: User awareness & control
+
+6. IMAGE PROCESSING PIPELINE
+   ├─ Flow:
+   │  Screen → VirtualDisplay → Surface → ImageReader → Image (YUV/RGB)
+   │  → ByteBuffer → Bitmap (ARGB_8888) → PNG (compressed) → ByteArray
+   ├─ Format:
+   │  • RGBA_8888: 4 bytes per pixel (R, G, B, Alpha)
+   │  • PNG: Lossless compression
+   └─ Konsep: Graphics pipeline
+
+================================================================================
+                           5. STRUKTUR FILE PROJECT
+================================================================================
+
+fitur_deteksi_gambar_ai/
+│
+├── android/                                    # Native Android code
+│   ├── app/
+│   │   ├── build.gradle.kts                   # Android build config
+│   │   └── src/main/
+│   │       ├── AndroidManifest.xml            # App permissions & components
+│   │       └── kotlin/.../
+│   │           ├── MainActivity.kt             # MethodChannel handler
+│   │           ├── ScreenCaptureHelper.kt      # MediaProjection logic
+│   │           ├── AppDetectionHelper.kt       # UsageStats logic
+│   │           └── ScreenCaptureService.kt     # Foreground Service
+│   └── gradle/                                 # Gradle wrapper
+│
+├── lib/                                        # Flutter Dart code
+│   ├── main.dart                               # Entry point
+│   ├── route.dart                              # App routes
+│   ├── home.dart                               # Home screen
+│   │
+│   ├── screens/
+│   │   └── monitoring_screen.dart              # Monitoring UI
+│   │
+│   ├── services/
+│   │   ├── screen_capture_service.dart         # Bridge untuk screen capture
+│   │   ├── app_detection_service.dart          # Bridge untuk app detection
+│   │   └── auto_screenshot_service.dart        # Orchestrator (timer & save)
+│   │
+│   └── controllers/
+│       ├── capture_controller.dart             # State management
+│       └── recording_controller.dart           # State management
+│
+├── pubspec.yaml                                # Flutter dependencies
+├── analysis_options.yaml                       # Dart linter config
+└── README.md                                   # Project documentation
+
+================================================================================
+                         6. PERMISSIONS YANG DIBUTUHKAN
+================================================================================
+
+📋 AndroidManifest.xml:
+────────────────────────────────────────────────────────────────────────────
+
+1. <uses-permission android:name="android.permission.INTERNET"/>
+   ├─ Fungsi: Kirim data ke server AI
+   └─ Level: Normal (auto granted)
+
+2. <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+   ├─ Fungsi: Jalankan Foreground Service
+   └─ Level: Normal (auto granted)
+
+3. <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+   ├─ Fungsi: Foreground Service type untuk MediaProjection
+   └─ Required: Android 14+ (API 34+)
+
+4. <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+   ├─ Fungsi: Show notification untuk Foreground Service
+   └─ Required: Android 13+ (API 33+)
+
+5. <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+   ├─ Fungsi: Save screenshot ke storage
+   └─ Level: Dangerous (request at runtime)
+   └─ Note: Deprecated di Android 10+, pakai scoped storage
+
+6. <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+   ├─ Fungsi: Read file dari storage
+   └─ Level: Dangerous (request at runtime)
+
+7. <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+                    tools:ignore="ProtectedPermissions"/>
+   ├─ Fungsi: Query aplikasi yang sedang dipakai
+   └─ Level: Special (user harus ke Settings)
+   └─ Check: AppOpsManager.checkOpNoThrow()
+
+8. <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+                    tools:ignore="QueryAllPackagesPermission"/>
+   ├─ Fungsi: Query semua installed packages
+   └─ Required: Android 11+ untuk PackageManager
+
+================================================================================
+                          7. KEY TECHNICAL DETAILS
+================================================================================
+
+🔑 MediaProjection:
+────────────────────────────────────────────────────────────────────────────
+• Introduced: Android 5.0 (API 21)
+• Permission: System dialog "Start capturing screen?"
+• Scope: Capture SEMUA yang ada di layar (full screen)
+• Duration: Sampai user stop atau app closed
+• Requirement: Foreground Service (Android 14+)
+
+🔑 VirtualDisplay:
+────────────────────────────────────────────────────────────────────────────
+• Fungsi: Display virtual yang "mirror" screen fisik
+• Output: Surface (bisa ImageReader, SurfaceView, dll)
+• Flag AUTO_MIRROR: Otomatis sync dengan screen fisik
+• Performance: Real-time rendering (60fps di flagship device)
+
+🔑 ImageReader:
+────────────────────────────────────────────────────────────────────────────
+• Buffer: Queue of images (kita pakai 3)
+• Format: RGBA_8888 (4 bytes per pixel)
+• Method:
+  - acquireLatestImage(): Ambil image terbaru (skip yang lama)
+  - acquireNextImage(): Ambil image next dalam queue
+• PENTING: Harus close() setiap Image untuk free buffer!
+
+🔑 UsageStatsManager:
+────────────────────────────────────────────────────────────────────────────
+• Introduced: Android 5.0 (API 21)
+• Fungsi: Track app usage statistics
+• Permission: PACKAGE_USAGE_STATS (special permission)
+• Query: queryUsageStats(interval, beginTime, endTime)
+• Data: Package name, total time, last time used
+• Limitasi: Update interval ~1 detik (tidak real-time)
+
+🔑 Aggressive Capture Mode:
+────────────────────────────────────────────────────────────────────────────
+• Strategi: Langsung capture tanpa wait
+• Pro: No artificial delay, fast response
+• Con: First capture might fail (VirtualDisplay belum ready)
+• Solution: Auto retry setiap 5 detik
+• Expected: Capture ke-2 biasanya sukses (VirtualDisplay sudah render)
+
+🔑 Timer Strategy:
+────────────────────────────────────────────────────────────────────────────
+• Timer.periodic(Duration(seconds: 5), callback)
+• Start timer SEBELUM capture pertama
+• Capture pertama langsung (tidak tunggu 5 detik)
+• Jika gagal: Retry otomatis di cycle berikutnya
+• Cancel: timer.cancel() saat stop monitoring
+
+================================================================================
+                       8. TROUBLESHOOTING & COMMON ISSUES
+================================================================================
+
+❌ ISSUE 1: "Permission Denied" saat request MediaProjection
+────────────────────────────────────────────────────────────────────────────
+Penyebab:
+  • User klik "Cancel" di dialog
+  • Foreground Service belum ready (Android 14+)
+  
+Solusi:
+  • Check permission result di onActivityResult
+  • Start Foreground Service SEBELUM request permission
+  • Delay 500ms setelah start service
+
+❌ ISSUE 2: "No image available" saat capture
+────────────────────────────────────────────────────────────────────────────
+Penyebab:
+  • VirtualDisplay belum render frame pertama
+  • ImageReader buffer penuh (tidak di-close)
+  
+Solusi:
+  • Aggressive mode: Return null, retry otomatis
+  • PENTING: image.close() di finally block
+  • Increase buffer size (2 → 3)
+
+❌ ISSUE 3: "Usage Stats permission not granted"
+────────────────────────────────────────────────────────────────────────────
+Penyebab:
+  • User belum enable di Settings → Special app access → Usage access
+  
+Solusi:
+  • Detect dengan AppOpsManager.checkOpNoThrow()
+  • Show dialog dengan tombol "Open Settings"
+  • startActivity(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+
+❌ ISSUE 4: App crash dengan SecurityException
+────────────────────────────────────────────────────────────────────────────
+Penyebab (Android 14+):
+  • MediaProjection tanpa Foreground Service
+  
+Solusi:
+  • Declare service di AndroidManifest.xml
+  • Set foregroundServiceType="mediaProjection"
+  • Call startForegroundService() sebelum request permission
+
+❌ ISSUE 5: Memory leak / OutOfMemoryError
+────────────────────────────────────────────────────────────────────────────
+Penyebab:
+  • Bitmap tidak di-recycle()
+  • Image tidak di-close()
+  • Screenshot tidak di-cleanup setelah upload
+  
+Solusi:
+  • ALWAYS recycle Bitmap: bitmap.recycle()
+  • ALWAYS close Image: image.close() di finally
+  • Delete screenshot setelah upload sukses
+
+❌ ISSUE 6: Screenshot hitam / blank
+────────────────────────────────────────────────────────────────────────────
+Penyebab:
+  • App dengan FLAG_SECURE (banking apps)
+  • Screen off / locked
+  
+Solusi:
+  • Tidak bisa capture app dengan FLAG_SECURE (security restriction)
+  • Skip capture saat screen off
+
+================================================================================
+                          9. BEST PRACTICES & TIPS
+================================================================================
+
+✅ PERFORMANCE:
+────────────────────────────────────────────────────────────────────────────
+1. Jangan capture terlalu sering (min 3-5 detik)
+2. Compress PNG dengan quality 80-90 (balance size vs quality)
+3. Upload screenshot di background thread
+4. Delete old screenshots untuk save storage
+5. Monitor memory usage (profiler)
+
+✅ SECURITY & PRIVACY:
+────────────────────────────────────────────────────────────────────────────
+1. Inform user bahwa app capture full screen
+2. Show notification saat monitoring aktif (transparency)
+3. Provide easy way to stop monitoring
+4. Encrypt screenshot sebelum upload ke server
+5. Delete local screenshot setelah upload
+
+✅ USER EXPERIENCE:
+────────────────────────────────────────────────────────────────────────────
+1. Clear onboarding untuk explain permissions
+2. Visual indicator saat monitoring (icon/notification)
+3. Show real-time status (current app, screenshot count)
+4. Graceful error handling dengan user-friendly message
+5. Battery optimization: Allow user to adjust interval
+
+✅ CODE QUALITY:
+────────────────────────────────────────────────────────────────────────────
+1. Separation of concerns (Service Layer Pattern)
+2. Error handling di semua async operations
+3. Logging untuk debugging (production: disable sensitive logs)
+4. Resource cleanup di onDestroy / dispose
+5. Unit tests untuk business logic
+
+================================================================================
+                            10. NEXT STEPS / ROADMAP
+================================================================================
+
+🚧 FEATURES TO ADD:
+────────────────────────────────────────────────────────────────────────────
+
+1. ✅ DONE: Screen capture dengan MediaProjection
+2. ✅ DONE: App detection dengan UsageStatsManager
+3. ✅ DONE: Auto capture setiap 5 detik
+4. ✅ DONE: Save screenshot ke storage
+5. ⏳ TODO: Upload ke AI backend
+   ├─ Endpoint: POST https://web-production-f55c5.up.railway.app/detect
+   ├─ Payload: multipart/form-data (image file)
+   └─ Response: JSON dengan detection results
+
+6. ⏳ TODO: Show AI detection results di UI
+   ├─ Parse JSON response
+   ├─ Display detected objects/content
+   └─ Highlight suspicious content
+
+7. ⏳ TODO: Notification untuk detection alerts
+   ├─ Show notification saat AI detect specific content
+   └─ Action buttons (View, Dismiss, Stop monitoring)
+
+8. ⏳ TODO: History & Analytics
+   ├─ Chart: Screen time per app
+   ├─ Timeline: Screenshot history
+   └─ Export: PDF report
+
+9. ⏳ TODO: Settings & Customization
+   ├─ Capture interval (3s, 5s, 10s)
+   ├─ Image quality (Low, Medium, High)
+   ├─ Auto-upload toggle
+   └─ Storage management (auto-delete old screenshots)
+
+10. ⏳ TODO: Performance optimization
+    ├─ Background upload queue
+    ├─ Image compression before upload
+    ├─ Batch upload (multiple screenshots)
+    └─ Offline mode (save to upload later)
+
+================================================================================
+                             11. LEARNING RESOURCES
+================================================================================
+
+📚 OFFICIAL DOCUMENTATION:
+────────────────────────────────────────────────────────────────────────────
+• Flutter: https://flutter.dev/docs
+• GetX: https://pub.dev/packages/get
+• Android MediaProjection: https://developer.android.com/reference/android/media/projection/MediaProjection
+• UsageStatsManager: https://developer.android.com/reference/android/app/usage/UsageStatsManager
+• MethodChannel: https://docs.flutter.dev/platform-integration/platform-channels
+
+📺 RECOMMENDED LEARNING PATH:
+────────────────────────────────────────────────────────────────────────────
+1. Flutter basics (widgets, state management)
+2. GetX state management (Rx, Controllers)
+3. Platform channels (MethodChannel)
+4. Android basics (Activity, Service, Permissions)
+5. Kotlin language
+6. Android MediaProjection API
+7. Image processing basics
+
+================================================================================
+                                  END OF DOCUMENTATION
+================================================================================
+
+💡 Tips untuk memahami kode:
+1. Mulai dari main.dart → monitoring_screen.dart (UI)
+2. Trace user action: Button click → service call
+3. Follow MethodChannel: Dart → Kotlin
+4. Understand native APIs: MediaProjection, UsageStatsManager
+5. Debug dengan logging: print() di Dart, Log.d() di Kotlin
+
+📝 Jika ada pertanyaan:
+• Baca dokumentasi official API yang digunakan
+• Check stack trace untuk error location
+• Tambahkan logging di setiap step
+• Test di real device (emulator tidak support MediaProjection)
+
+🎓 Happy Learning! 🚀

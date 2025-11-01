@@ -3,13 +3,28 @@ import 'package:get/get.dart';
 import 'route.dart';
 import 'controllers/capture_controller.dart';
 import 'controllers/recording_controller.dart';
-import 'package:screenshot/screenshot.dart';
+import 'services/auto_screenshot_service.dart';
 
+/**
+ * MAIN - Entry point aplikasi
+ * 
+ * SETUP:
+ * 1. Initialize GetX controllers (CaptureController, RecordingController, AutoScreenshotService)
+ * 2. Jalankan app dengan GetMaterialApp
+ * 
+ * CATATAN:
+ * - Screenshot tidak menggunakan widget wrapper lagi
+ * - Capture dilakukan di native side (MediaProjection API)
+ * - Flutter hanya menampilkan UI dan menerima hasil screenshot
+ */
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  // siapkan controller global sebelum runApp
+
+  // Register semua GetX controllers secara global
   Get.put(CaptureController());
   Get.put(RecordingController());
+  Get.put(AutoScreenshotService());
+
   runApp(const MyApp());
 }
 
@@ -18,21 +33,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // siapkan ScreenshotController lokal untuk menghindari dependensi pada RecordingController
-    final ScreenshotController screenshotController = ScreenshotController();
-
-    // bungkus seluruh app dengan Screenshot sehingga capture tetap bekerja di background
-    return Screenshot(
-      controller: screenshotController,
-      child: GetMaterialApp(
-        title: 'Fitur Deteksi AI',
-        debugShowCheckedModeBanner: false,
-        initialRoute: Routes.home,
-        getPages: AppPages.pages,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.cyan),
-          useMaterial3: true,
-        ),
+    return GetMaterialApp(
+      title: 'Reflvy - AI Monitor',
+      debugShowCheckedModeBanner: false,
+      initialRoute: Routes.home,
+      getPages: AppPages.pages,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
     );
   }

@@ -220,7 +220,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
             const SizedBox(height: 20),
 
-            // Screenshot List
+            // Screenshot List - Grid dengan preview gambar
             Expanded(
               child: Obx(() {
                 if (_screenshotService.screenshots.isEmpty) {
@@ -267,7 +267,15 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                         ),
                       ),
                       Expanded(
-                        child: ListView.builder(
+                        child: GridView.builder(
+                          padding: const EdgeInsets.all(8),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2, // 2 kolom
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                            childAspectRatio: 0.75,
+                          ),
                           itemCount: _screenshotService.screenshots.length,
                           reverse: true, // Newest first
                           itemBuilder: (context, index) {
@@ -277,21 +285,154 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                     index;
                             final screenshot =
                                 _screenshotService.screenshots[reversedIndex];
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: Colors.deepPurple,
-                                child: Text(
-                                  '${reversedIndex + 1}',
-                                  style: const TextStyle(color: Colors.white),
+                            final imageBytes = screenshot['image_bytes'];
+
+                            return GestureDetector(
+                              onTap: () {
+                                // Tap untuk full screen preview
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => Dialog(
+                                    insetPadding: const EdgeInsets.all(8),
+                                    backgroundColor: Colors.black,
+                                    child: Stack(
+                                      children: [
+                                        InteractiveViewer(
+                                          child: Center(
+                                            child: Image.memory(imageBytes),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          top: 10,
+                                          right: 10,
+                                          child: IconButton(
+                                            icon: const Icon(Icons.close,
+                                                color: Colors.white, size: 30),
+                                            onPressed: () => Get.back(),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          bottom: 10,
+                                          left: 10,
+                                          right: 10,
+                                          child: Container(
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color:
+                                                  Colors.black.withOpacity(0.7),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  '📱 ${screenshot['app_name']}',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  '🕒 ${screenshot['timestamp'].toString().substring(11, 19)}',
+                                                  style: const TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  '📦 ${(screenshot['size'] / 1024).toStringAsFixed(1)} KB',
+                                                  style: const TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Card(
+                                elevation: 2,
+                                clipBehavior: Clip.antiAlias,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Preview image
+                                    Expanded(
+                                      child: Container(
+                                        width: double.infinity,
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade200,
+                                        ),
+                                        child: Image.memory(
+                                          imageBytes,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                    ),
+                                    // Info
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              CircleAvatar(
+                                                radius: 12,
+                                                backgroundColor:
+                                                    Colors.deepPurple,
+                                                child: Text(
+                                                  '${reversedIndex + 1}',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  screenshot['app_name'],
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 12,
+                                                  ),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '${screenshot['timestamp'].toString().substring(11, 19)} • '
+                                            '${(screenshot['size'] / 1024).toStringAsFixed(1)} KB',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              title: Text(screenshot['app_name']),
-                              subtitle: Text(
-                                '${screenshot['timestamp'].toString().substring(11, 19)} • '
-                                '${(screenshot['file_size'] / 1024).toStringAsFixed(1)} KB',
-                              ),
-                              trailing: const Icon(Icons.check_circle,
-                                  color: Colors.green),
                             );
                           },
                         ),

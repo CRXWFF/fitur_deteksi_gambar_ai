@@ -75,10 +75,10 @@ class AutoScreenshotService extends GetxController {
     screenshotCount.value = 0;
     screenshots.clear();
 
-  // STEP 4: Wait for warm-up (native side does dummy capture ~1.2s)
-  // Give a safe buffer so first real capture succeeds on most devices
-  print('⏳ Waiting ~1.5s for VirtualDisplay warm-up...');
-  await Future.delayed(const Duration(milliseconds: 1500));
+    // STEP 4: Wait for warm-up (native side does dummy capture ~1.2s)
+    // Give a safe buffer so first real capture succeeds on most devices
+    print('⏳ Waiting ~1.5s for VirtualDisplay warm-up...');
+    await Future.delayed(const Duration(milliseconds: 1500));
 
     // STEP 5: Start timer untuk capture setiap 5 detik
     _timer = Timer.periodic(const Duration(seconds: 5), (timer) async {

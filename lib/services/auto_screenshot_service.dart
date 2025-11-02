@@ -126,14 +126,12 @@ class AutoScreenshotService extends GetxController {
   }
 
   /**
-   * CAPTURE AND SAVE - Ambil 1 screenshot dan simpan ke file
+   * CAPTURE - Ambil 1 screenshot dan simpan ke memory (tidak ke file)
    * 
    * FLOW:
    * 1. Detect app yang sedang dibuka (UsageStatsManager)
    * 2. Capture full screen frame (MediaProjection)
-   * 3. Generate filename: screenshot_[time]_[appname].png
-   * 4. Save ke folder session
-   * 5. Add ke list screenshots
+   * 3. Simpan Uint8List ke list (in-memory)
    */
   Future<void> _captureAndSave() async {
     try {
@@ -158,41 +156,19 @@ class AutoScreenshotService extends GetxController {
         return;
       }
 
-      // STEP 3: Generate filename dengan timestamp
-      String timestamp = DateFormat('HHmmss_SSS').format(DateTime.now());
-      String safeAppName = appName.replaceAll(' ', '_').replaceAll('/', '_');
-      String filename = 'screenshot_${timestamp}_$safeAppName.png';
-
-      if (_sessionFolder == null) {
-        print('❌ Session folder is null!');
-        return;
-      }
-
-      String filePath = '$_sessionFolder/$filename';
-
-      // STEP 4: Simpan ke file
-      try {
-        File file = File(filePath);
-        await file.writeAsBytes(imageBytes);
-        print('💾 File saved to: $filePath');
-      } catch (e) {
-        print('❌ Error saving file: $e');
-        return;
-      }
-
-      // STEP 5: Increment counter
+      // STEP 3: Increment counter
       screenshotCount.value++;
 
-      // STEP 6: Simpan info ke list
+      // STEP 4: Simpan ke memory (in-app list)
       screenshots.add({
         'timestamp': DateTime.now(),
         'app_name': appName,
-        'file_path': filePath,
-        'file_size': imageBytes.length,
+        'image_bytes': imageBytes, // Simpan Uint8List langsung
+        'size': imageBytes.length,
       });
 
       // Log info
-      print('✅ Screenshot #${screenshotCount.value} saved: $filename');
+      print('✅ Screenshot #${screenshotCount.value} captured in memory');
       print('   📱 App: $appName');
       print('   📦 Size: ${(imageBytes.length / 1024).toStringAsFixed(2)} KB');
     } catch (e, stackTrace) {

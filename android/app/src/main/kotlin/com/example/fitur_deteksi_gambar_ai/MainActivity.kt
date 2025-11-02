@@ -40,6 +40,9 @@ class MainActivity : FlutterActivity() {
     // Pending result untuk async permission request
     private var pendingCaptureResult: MethodChannel.Result? = null
     
+    // Flag untuk track apakah capture sudah ready
+    private var isCaptureReady = false
+    
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
@@ -90,29 +93,46 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     // Request permission dan start capture
                     "startCapture" -> {
+                        Log.d("MainActivity", "🎬 startCapture called")
                         pendingCaptureResult = result
+                        isCaptureReady = false // Reset flag
                         requestMediaProjectionPermission()
                     }
                     
                     // Capture 1 frame dari screen
                     "captureFrame" -> {
-                        val imageBytes = screenCaptureHelper.captureFrame()
-                        if (imageBytes != null) {
-                            result.success(imageBytes)
-                        } else {
-                            result.error("CAPTURE_ERROR", "Failed to capture frame", null)
+                        Log.d("MainActivity", "📸 captureFrame called")
+                        
+                        // Check flag dulu
+                        if (!isCaptureReady) {
+                            Log.w("MainActivity", "⚠️ Capture not ready yet, returning null")
+                            result.success(null)
+                            return@setMethodCallHandler
                         }
-                    }
-
-                    // Cek apakah capture sudah siap (VirtualDisplay & ImageReader OK)
-                    "isReady" -> {
-                        val ready = screenCaptureHelper.isReady()
-                        result.success(ready)
+                        
+                        try {
+                            val imageBytes = screenCaptureHelper.captureFrame()
+                            if (imageBytes != null) {
+                                val sizeKB = imageBytes.size / 1024.0
+                                Log.d("MainActivity", "✅ Captured ${String.format("%.2f", sizeKB)} KB")
+                                result.success(imageBytes)
+                            } else {
+                                Log.w("MainActivity", "⚠️ captureFrame returned null")
+                                result.success(null)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "❌ Error: ${e.message}")
+                            e.printStackTrace()
+                            result.error("CAPTURE_ERROR", e.message, null)
+                        }
                     }
                     
                     // Stop capture dan cleanup
                     "stopCapture" -> {
+                        Log.d("MainActivity", "⏹️ stopCapture called")
+                        
                         screenCaptureHelper.stopCapture()
+                        isCaptureReady = false
                         
                         // Stop foreground service
                         val serviceIntent = Intent(this, ScreenCaptureService::class.java)
@@ -168,46 +188,96 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         
         if (requestCode == REQUEST_CODE_SCREEN_CAPTURE) {
-            Log.d("MainActivity", "📥 Activity result: requestCode=$requestCode, resultCode=$resultCode")
+            Log.d("MainActivity", "📥 onActivityResult: code=$requestCode, result=$resultCode")
             
             if (resultCode == Activity.RESULT_OK && data != null) {
-                Log.d("MainActivity", "✅ MediaProjection permission granted by user!")
+                Log.d("MainActivity", "✅ Permission GRANTED!")
                 
                 try {
-                    // Get MediaProjection dari result
                     val mediaProjection = projectionManager.getMediaProjection(Activity.RESULT_OK, data)
                     
                     if (mediaProjection != null) {
-                        Log.d("MainActivity", "✅ MediaProjection object created successfully!")
+                        Log.d("MainActivity", "✅ MediaProjection created")
                         
-                        // Setup capture helper
+                        // Setup capture
                         screenCaptureHelper.startCapture(mediaProjection)
+                        Log.d("MainActivity", "✅ startCapture() completed")
                         
-                        // Notify Flutter: permission granted & ready
-                        pendingCaptureResult?.success(true)
-                        Log.d("MainActivity", "✅ Screen capture started successfully!")
+                        // WARM-UP: Wait 1.2 second lalu dummy capture
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            Log.d("MainActivity", "🔥 Warming up VirtualDisplay...")
+                            
+                            try {
+                                // Dummy capture untuk force render first frame
+                                val dummyImage = screenCaptureHelper.captureFrame()
+                                
+                                if (dummyImage != null) {
+                                    val sizeKB = dummyImage.size / 1024.0
+                                    Log.d("MainActivity", "✅ Warm-up SUCCESS! ${String.format("%.2f", sizeKB)} KB")
+                                    
+                                    // SET FLAG READY!
+                                    isCaptureReady = true
+                                    Log.d("MainActivity", "✅ isCaptureReady = TRUE")
+                                    
+                                } else {
+                                    Log.w("MainActivity", "⚠️ Warm-up returned null")
+                                    
+                                    // Retry 1x setelah 500ms
+                                    Handler(Looper.getMainLooper()).postDelayed({
+                                        Log.d("MainActivity", "🔄 Retry warm-up...")
+                                        val retryImage = screenCaptureHelper.captureFrame()
+                                        
+                                        if (retryImage != null) {
+                                            Log.d("MainActivity", "✅ Retry SUCCESS!")
+                                            isCaptureReady = true
+                                        } else {
+                                            Log.e("MainActivity", "❌ Retry failed, setting ready anyway")
+                                            isCaptureReady = true // Set true anyway
+                                        }
+                                        
+                                    }, 500)
+                                }
+                                
+                                // Notify Flutter
+                                pendingCaptureResult?.success(true)
+                                pendingCaptureResult = null
+                                
+                            } catch (e: Exception) {
+                                Log.e("MainActivity", "❌ Warm-up error: ${e.message}")
+                                e.printStackTrace()
+                                
+                                // Set ready anyway
+                                isCaptureReady = true
+                                
+                                pendingCaptureResult?.success(true)
+                                pendingCaptureResult = null
+                            }
+                            
+                        }, 1200) // Wait 1.2 seconds
+                        
                     } else {
                         Log.e("MainActivity", "❌ MediaProjection is null!")
                         pendingCaptureResult?.success(false)
+                        pendingCaptureResult = null
                     }
                     
                 } catch (e: Exception) {
-                    Log.e("MainActivity", "❌ Error starting capture: ${e.message}")
+                    Log.e("MainActivity", "❌ Error in onActivityResult: ${e.message}")
                     e.printStackTrace()
                     pendingCaptureResult?.success(false)
+                    pendingCaptureResult = null
                 }
                 
             } else {
-                Log.w("MainActivity", "❌ MediaProjection permission denied by user! resultCode=$resultCode")
+                Log.w("MainActivity", "❌ Permission DENIED! result=$resultCode")
                 
-                // Stop service karena permission ditolak
+                // Stop service
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java)
                 stopService(serviceIntent)
                 
                 pendingCaptureResult?.success(false)
+                pendingCaptureResult = null
             }
-            
-            pendingCaptureResult = null
         }
     }
 }

@@ -65,6 +65,8 @@ class AutoScreenshotService extends GetxController {
       return;
     }
 
+    print('✅ Permission granted! Setting up monitoring...');
+
     // STEP 2: Buat folder untuk session ini
     await _createSessionFolder();
 
@@ -73,13 +75,18 @@ class AutoScreenshotService extends GetxController {
     screenshotCount.value = 0;
     screenshots.clear();
 
-    // STEP 4: Start timer untuk capture setiap 5 detik
+  // STEP 4: Wait for warm-up (native side does dummy capture ~1.2s)
+  // Give a safe buffer so first real capture succeeds on most devices
+  print('⏳ Waiting ~1.5s for VirtualDisplay warm-up...');
+  await Future.delayed(const Duration(milliseconds: 1500));
+
+    // STEP 5: Start timer untuk capture setiap 5 detik
     _timer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       await _captureAndSave();
     });
 
-    // STEP 5: Capture pertama LANGSUNG tanpa delay
-    print('📸 Starting immediate capture...');
+    // STEP 6: Capture pertama
+    print('📸 Starting first actual capture...');
     await _captureAndSave();
 
     Get.snackbar(
@@ -140,7 +147,8 @@ class AutoScreenshotService extends GetxController {
 
       if (imageBytes == null) {
         print(
-            '! No frame available yet - VirtualDisplay might still be initializing');
+          '! No frame available yet - VirtualDisplay might still be initializing',
+        );
         print('   Will retry in 5 seconds...');
         return;
       }
@@ -205,8 +213,9 @@ class AutoScreenshotService extends GetxController {
       }
 
       // Buat folder dengan nama tanggal dan waktu
-      String sessionName =
-          DateFormat('yyyy-MM-dd_HH-mm-ss').format(DateTime.now());
+      String sessionName = DateFormat(
+        'yyyy-MM-dd_HH-mm-ss',
+      ).format(DateTime.now());
       String basePath = '${externalDir.path}/Reflvy_Screenshots';
       _sessionFolder = '$basePath/$sessionName';
 

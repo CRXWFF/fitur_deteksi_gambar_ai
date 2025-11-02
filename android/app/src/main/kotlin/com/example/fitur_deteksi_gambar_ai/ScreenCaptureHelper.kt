@@ -27,6 +27,7 @@ class ScreenCaptureHelper(private val context: Context) {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
+    private var projectionCallback: MediaProjection.Callback? = null
     
     private var screenWidth: Int = 0
     private var screenHeight: Int = 0
@@ -88,6 +89,17 @@ class ScreenCaptureHelper(private val context: Context) {
             }, Handler(Looper.getMainLooper()))
             
             Log.d(TAG, "✅ ImageReader created: ${screenWidth}x${screenHeight}")
+
+            // Wajib: register callback sebelum createVirtualDisplay (Android 14 requirement)
+            if (projectionCallback == null) {
+                projectionCallback = object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        Log.w(TAG, "🛑 MediaProjection stopped by system/user")
+                        stopCapture()
+                    }
+                }
+            }
+            mediaProjection?.registerCallback(projectionCallback!!, Handler(Looper.getMainLooper()))
             
             // Buat VirtualDisplay yang akan "mirror" layar asli
             virtualDisplay = mediaProjection?.createVirtualDisplay(
@@ -199,6 +211,12 @@ class ScreenCaptureHelper(private val context: Context) {
         Log.d(TAG, "⏹️ Stopping screen capture...")
         
         try {
+            try {
+                if (mediaProjection != null && projectionCallback != null) {
+                    mediaProjection?.unregisterCallback(projectionCallback!!)
+                }
+            } catch (_: Exception) { }
+
             virtualDisplay?.release()
             virtualDisplay = null
             

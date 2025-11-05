@@ -55,6 +55,9 @@ class AutoScreenshotService extends GetxController {
   // Flag untuk pause monitoring saat popup intervensi muncul
   final RxBool isPaused = false.obs;
 
+  // Timer untuk auto-resume monitoring jika overlay tidak merespons
+  Timer? _pauseTimeoutTimer;
+
   // Path folder untuk session ini (opsional - sekarang simpan di memory)
   String? _sessionFolder;
 
@@ -423,6 +426,17 @@ class AutoScreenshotService extends GetxController {
       );
 
       print('✅ Overlay displayed, waiting for user action...');
+
+      // ✅ START TIMEOUT TIMER: Auto-resume setelah 10 detik jika tidak ada event
+      _pauseTimeoutTimer?.cancel();
+      _pauseTimeoutTimer = Timer(const Duration(seconds: 10), () {
+        if (isPaused.value) {
+          print('⏰ Timeout reached! No overlay event received.');
+          print('✅ Auto-resuming monitoring...');
+          isPaused.value = false;
+        }
+      });
+
     } catch (e) {
       print('❌ Error showing overlay: $e');
 
@@ -440,6 +454,10 @@ class AutoScreenshotService extends GetxController {
    */
   void _handleOverlayEvent(Map<String, dynamic> event) {
     print('📨 Overlay event received: $event');
+
+    // Cancel timeout timer jika ada event masuk
+    _pauseTimeoutTimer?.cancel();
+    _pauseTimeoutTimer = null;
 
     final action = event['action'] as String?;
 
@@ -574,6 +592,7 @@ class AutoScreenshotService extends GetxController {
   @override
   void onClose() {
     _timer?.cancel();
+    _pauseTimeoutTimer?.cancel();
     _overlayEventSubscription?.cancel();
     super.onClose();
   }

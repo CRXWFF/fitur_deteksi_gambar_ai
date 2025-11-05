@@ -50,37 +50,42 @@ class MainActivity : FlutterActivity() {
     
     // Event sink untuk broadcast overlay events
     private var overlayEventSink: EventChannel.EventSink? = null
+    // If Flutter is not listening when a broadcast arrives, store it here so Dart can poll later
+    private var pendingOverlayEvent: Map<String, String>? = null
+    private var isOverlayReceiverRegistered: Boolean = false
     
     // BroadcastReceiver untuk overlay events
     private val overlayBroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             Log.d(TAG, "📨📨📨 BroadcastReceiver.onReceive() called! action=${intent?.action}")
-            
+
             when (intent?.action) {
                 OverlayService.BROADCAST_USER_DISMISSED -> {
                     Log.d(TAG, "✅ Received BROADCAST_USER_DISMISSED")
-                    
+
+                    val payload = mapOf("action" to "dismissed")
+
                     if (overlayEventSink != null) {
-                        overlayEventSink?.success(mapOf(
-                            "action" to "dismissed"
-                        ))
+                        overlayEventSink?.success(payload)
                         Log.d(TAG, "📤 Event sent to Flutter: dismissed")
                     } else {
-                        Log.e(TAG, "❌ overlayEventSink is NULL! Cannot send to Flutter")
+                        // Store pending event so Dart can poll when it resumes
+                        pendingOverlayEvent = mapOf("action" to "dismissed")
+                        Log.d(TAG, "📥 overlayEventSink null - pending event saved")
                     }
                 }
                 OverlayService.BROADCAST_USER_CLOSE_APP -> {
                     val appName = intent.getStringExtra("app_name") ?: "Unknown"
                     Log.d(TAG, "✅ Received BROADCAST_USER_CLOSE_APP for: $appName")
-                    
+
+                    val payload = mapOf("action" to "close_app", "app_name" to appName)
+
                     if (overlayEventSink != null) {
-                        overlayEventSink?.success(mapOf(
-                            "action" to "close_app",
-                            "app_name" to appName
-                        ))
+                        overlayEventSink?.success(payload)
                         Log.d(TAG, "📤 Event sent to Flutter: close_app, app=$appName")
                     } else {
-                        Log.e(TAG, "❌ overlayEventSink is NULL! Cannot send to Flutter")
+                        pendingOverlayEvent = payload
+                        Log.d(TAG, "📥 overlayEventSink null - pending close_app event saved")
                     }
                 }
                 else -> {
@@ -118,32 +123,37 @@ class MainActivity : FlutterActivity() {
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     overlayEventSink = events
-                    
-                    // Register BroadcastReceiver
-                    val filter = IntentFilter().apply {
-                        addAction(OverlayService.BROADCAST_USER_DISMISSED)
-                        addAction(OverlayService.BROADCAST_USER_CLOSE_APP)
+                    Log.d(TAG, "✅ Overlay EventChannel listening")
+
+                    // If there was a pending event while Dart wasn't listening, forward it now
+                    pendingOverlayEvent?.let { evt ->
+                        Log.d(TAG, "📦 Flushing pending overlay event to Dart: $evt")
+                        overlayEventSink?.success(evt)
+                        pendingOverlayEvent = null
                     }
-                    
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        registerReceiver(overlayBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-                    } else {
-                        registerReceiver(overlayBroadcastReceiver, filter)
-                    }
-                    
-                    Log.d("MainActivity", "✅ Overlay EventChannel listening")
                 }
                 
                 override fun onCancel(arguments: Any?) {
-                    try {
-                        unregisterReceiver(overlayBroadcastReceiver)
-                    } catch (e: Exception) {
-                        // Already unregistered
-                    }
+                    // Do NOT unregister receiver here - keep receiver active so we don't miss broadcasts
                     overlayEventSink = null
-                    Log.d("MainActivity", "🔇 Overlay EventChannel cancelled")
+                    Log.d(TAG, "🔇 Overlay EventChannel cancelled (receiver kept registered)")
                 }
             })
+
+        // Register overlay broadcast receiver once globally (keep registered across Dart pause/resume)
+        if (!isOverlayReceiverRegistered) {
+            val filter = IntentFilter().apply {
+                addAction(OverlayService.BROADCAST_USER_DISMISSED)
+                addAction(OverlayService.BROADCAST_USER_CLOSE_APP)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(overlayBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(overlayBroadcastReceiver, filter)
+            }
+            isOverlayReceiverRegistered = true
+            Log.d(TAG, "� Overlay BroadcastReceiver registered globally")
+        }
         
         // ====== CHANNEL 1: APP DETECTION ======
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_DETECTION_CHANNEL)

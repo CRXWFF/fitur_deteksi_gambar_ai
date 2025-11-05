@@ -28,6 +28,9 @@ dependencies:
   image: ^4.1.7
   intl: ^0.19.0
 
+  # Untuk force close app
+  android_intent_plus: ^4.0.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -1,13 +1,19 @@
 package com.example.fitur_deteksi_gambar_ai
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 /**
@@ -17,7 +23,8 @@ import io.flutter.plugin.common.MethodChannel
  * 1. Handle method calls dari Flutter (via MethodChannel)
  * 2. Request MediaProjection permission
  * 3. Capture screenshot full screen
- * 4. Return data ke Flutter
+ * 4. Force close aplikasi lain (via Accessibility Service)
+ * 5. Return data ke Flutter
  */
 class MainActivity : FlutterActivity() {
     
@@ -27,8 +34,40 @@ class MainActivity : FlutterActivity() {
     // Channel untuk screen capture
     private val SCREEN_CAPTURE_CHANNEL = "com.reflvy.app/screen_capture"
     
+    // Channel untuk force close aplikasi
+    private val APP_KILLER_CHANNEL = "com.reflvy.app/app_killer"
+    
+    // Channel untuk overlay realtime
+    private val OVERLAY_CHANNEL = "com.reflvy.app/overlay"
+    private val OVERLAY_EVENT_CHANNEL = "com.reflvy.app/overlay_events"
+    
     // Request code untuk MediaProjection permission
     private val REQUEST_CODE_SCREEN_CAPTURE = 1000
+    
+    // Event sink untuk broadcast overlay events
+    private var overlayEventSink: EventChannel.EventSink? = null
+    
+    // BroadcastReceiver untuk overlay events
+    private val overlayBroadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                OverlayService.BROADCAST_USER_DISMISSED -> {
+                    Log.d("MainActivity", "📨 User dismissed overlay")
+                    overlayEventSink?.success(mapOf(
+                        "action" to "dismissed"
+                    ))
+                }
+                OverlayService.BROADCAST_USER_CLOSE_APP -> {
+                    val appName = intent.getStringExtra("app_name") ?: "Unknown"
+                    Log.d("MainActivity", "📨 User wants to close: $appName")
+                    overlayEventSink?.success(mapOf(
+                        "action" to "close_app",
+                        "app_name" to appName
+                    ))
+                }
+            }
+        }
+    }
     
     // Helper classes
     private lateinit var appDetectionHelper: AppDetectionHelper
@@ -52,6 +91,38 @@ class MainActivity : FlutterActivity() {
         appDetectionHelper = AppDetectionHelper(this)
         screenCaptureHelper = ScreenCaptureHelper(this)
         projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        
+        // Setup EventChannel untuk overlay events
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY_EVENT_CHANNEL)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    overlayEventSink = events
+                    
+                    // Register BroadcastReceiver
+                    val filter = IntentFilter().apply {
+                        addAction(OverlayService.BROADCAST_USER_DISMISSED)
+                        addAction(OverlayService.BROADCAST_USER_CLOSE_APP)
+                    }
+                    
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        registerReceiver(overlayBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                    } else {
+                        registerReceiver(overlayBroadcastReceiver, filter)
+                    }
+                    
+                    Log.d("MainActivity", "✅ Overlay EventChannel listening")
+                }
+                
+                override fun onCancel(arguments: Any?) {
+                    try {
+                        unregisterReceiver(overlayBroadcastReceiver)
+                    } catch (e: Exception) {
+                        // Already unregistered
+                    }
+                    overlayEventSink = null
+                    Log.d("MainActivity", "🔇 Overlay EventChannel cancelled")
+                }
+            })
         
         // ====== CHANNEL 1: APP DETECTION ======
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_DETECTION_CHANNEL)
@@ -140,6 +211,129 @@ class MainActivity : FlutterActivity() {
                         Log.d("MainActivity", "⏹️ Foreground service stopped")
                         
                         result.success(null)
+                    }
+                    
+                    else -> {
+                        result.notImplemented()
+                    }
+                }
+            }
+        
+        // ====== CHANNEL 3: OVERLAY (REALTIME POPUP) ======
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    // Cek apakah SYSTEM_ALERT_WINDOW permission sudah aktif
+                    "canDrawOverlays" -> {
+                        val canDraw = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                            Settings.canDrawOverlays(this)
+                        } else {
+                            true // Android < 6.0 tidak perlu permission
+                        }
+                        result.success(canDraw)
+                    }
+                    
+                    // Buka pengaturan overlay
+                    "openOverlaySettings" -> {
+                        try {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    android.net.Uri.parse("package:$packageName")
+                                )
+                                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                startActivity(intent)
+                            }
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "Error opening overlay settings: ${e.message}")
+                            result.error("ERROR", e.message, null)
+                        }
+                    }
+                    
+                    // Tampilkan overlay
+                    "showOverlay" -> {
+                        val level = call.argument<String>("level")
+                        val appName = call.argument<String>("app_name")
+                        val imageBytes = call.argument<ByteArray>("image_bytes")
+                        
+                        if (level == null || appName == null) {
+                            result.error("INVALID_ARGUMENT", "level and app_name are required", null)
+                            return@setMethodCallHandler
+                        }
+                        
+                        // Start OverlayService
+                        val intent = Intent(this, OverlayService::class.java).apply {
+                            action = OverlayService.ACTION_SHOW_OVERLAY
+                            putExtra("level", level)
+                            putExtra("app_name", appName)
+                            if (imageBytes != null) {
+                                putExtra("image_bytes", imageBytes)
+                            }
+                        }
+                        
+                        startService(intent)
+                        result.success(null)
+                    }
+                    
+                    // Sembunyikan overlay
+                    "hideOverlay" -> {
+                        val intent = Intent(this, OverlayService::class.java).apply {
+                            action = OverlayService.ACTION_HIDE_OVERLAY
+                        }
+                        startService(intent)
+                        result.success(null)
+                    }
+                    
+                    else -> {
+                        result.notImplemented()
+                    }
+                }
+            }
+        
+        // ====== CHANNEL 4: APP KILLER (FORCE CLOSE) ======
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_KILLER_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    // Cek apakah Accessibility Service sudah aktif
+                    "isAccessibilityEnabled" -> {
+                        val isEnabled = ForceCloseAccessibilityService.isServiceEnabled()
+                        Log.d("MainActivity", "Accessibility enabled: $isEnabled")
+                        result.success(isEnabled)
+                    }
+                    
+                    // Buka pengaturan Accessibility
+                    "openAccessibilitySettings" -> {
+                        try {
+                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            startActivity(intent)
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "Error opening accessibility settings: ${e.message}")
+                            result.error("ERROR", e.message, null)
+                        }
+                    }
+                    
+                    // Force close aplikasi target
+                    "forceCloseApp" -> {
+                        val packageName = call.argument<String>("packageName")
+                        
+                        if (packageName == null) {
+                            result.error("INVALID_ARGUMENT", "packageName is required", null)
+                            return@setMethodCallHandler
+                        }
+                        
+                        val service = ForceCloseAccessibilityService.getInstance()
+                        
+                        if (service == null) {
+                            Log.w("MainActivity", "❌ Accessibility Service not running")
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+                        
+                        val success = service.forceCloseApp(packageName)
+                        result.success(success)
                     }
                     
                     else -> {

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Reflvy</string>
+    
+    <!-- Deskripsi Accessibility Service untuk Settings -->
+    <string name="accessibility_service_description">Reflvy membutuhkan layanan aksesibilitas untuk melindungi Anda dari konten berbahaya dengan menutup aplikasi secara otomatis.\n\nFitur:\n• Deteksi konten NSFW real-time\n• Tutup aplikasi berbahaya otomatis\n• Monitoring 24/7\n\nReflvy tidak menyimpan atau membagikan data pribadi Anda.</string>
+</resources>

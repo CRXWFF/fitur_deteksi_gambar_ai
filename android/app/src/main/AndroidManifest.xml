@@ -13,6 +13,12 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
     
+    <!-- Untuk force close aplikasi lain (Accessibility Service) -->
+    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" tools:ignore="ProtectedPermissions" />
+    
+    <!-- REALTIME OVERLAY - Popup muncul di atas aplikasi lain (TikTok, Instagram, dll) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    
     <application
         android:label="fitur_deteksi_gambar_ai"
         android:name="${applicationName}"
@@ -22,6 +28,24 @@
             android:name=".ScreenCaptureService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
+        
+        <!-- Overlay Service untuk popup realtime di atas aplikasi lain -->
+        <service
+            android:name=".OverlayService"
+            android:exported="false" />
+        
+        <!-- Accessibility Service untuk force close aplikasi -->
+        <service
+            android:name=".ForceCloseAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
         <activity
             android:name=".MainActivity"

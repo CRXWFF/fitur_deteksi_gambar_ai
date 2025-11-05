@@ -4,7 +4,9 @@ import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -172,9 +174,14 @@ class OverlayService : Service() {
             sendBroadcast(dismissIntent)
             Log.d(TAG, "📤 Broadcast sent: $BROADCAST_USER_DISMISSED")
             
-            // Hapus overlay
+            // Hapus overlay IMMEDIATELY
             hideOverlay()
-            stopSelf()
+            
+            // Stop service AFTER delay to ensure broadcast is received
+            Handler(Looper.getMainLooper()).postDelayed({
+                Log.d(TAG, "⏱️ Stopping service after broadcast delay...")
+                stopSelf()
+            }, 300) // 300ms delay
         }
         
         btnClose.setOnClickListener {
@@ -187,6 +194,9 @@ class OverlayService : Service() {
             sendBroadcast(closeIntent)
             Log.d(TAG, "📤 Broadcast sent: $BROADCAST_USER_CLOSE_APP with app=$appName")
             
+            // Hapus overlay IMMEDIATELY
+            hideOverlay()
+            
             // Minimize app: kirim user ke home screen
             try {
                 val homeIntent = Intent(Intent.ACTION_MAIN)
@@ -198,9 +208,11 @@ class OverlayService : Service() {
                 Log.e(TAG, "❌ Failed to minimize app: ${e.message}")
             }
             
-            // Hapus overlay
-            hideOverlay()
-            stopSelf()
+            // Stop service AFTER delay to ensure broadcast is received
+            Handler(Looper.getMainLooper()).postDelayed({
+                Log.d(TAG, "⏱️ Stopping service after broadcast delay...")
+                stopSelf()
+            }, 300) // 300ms delay
         }
         
         // Hide "Abaikan" button if level is not LOW

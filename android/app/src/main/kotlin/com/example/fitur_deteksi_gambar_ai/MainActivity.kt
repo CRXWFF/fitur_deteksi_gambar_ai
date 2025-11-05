@@ -38,9 +38,6 @@ class MainActivity : FlutterActivity() {
     // Channel untuk screen capture
     private val SCREEN_CAPTURE_CHANNEL = "com.reflvy.app/screen_capture"
     
-    // Channel untuk force close aplikasi
-    private val APP_KILLER_CHANNEL = "com.reflvy.app/app_killer"
-    
     // Channel untuk overlay realtime
     private val OVERLAY_CHANNEL = "com.reflvy.app/overlay"
     private val OVERLAY_EVENT_CHANNEL = "com.reflvy.app/overlay_events"
@@ -314,57 +311,6 @@ class MainActivity : FlutterActivity() {
                         }
                         startService(intent)
                         result.success(null)
-                    }
-                    
-                    else -> {
-                        result.notImplemented()
-                    }
-                }
-            }
-        
-        // ====== CHANNEL 4: APP KILLER (FORCE CLOSE) ======
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_KILLER_CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    // Cek apakah Accessibility Service sudah aktif
-                    "isAccessibilityEnabled" -> {
-                        val isEnabled = ForceCloseAccessibilityService.isServiceEnabled()
-                        Log.d("MainActivity", "Accessibility enabled: $isEnabled")
-                        result.success(isEnabled)
-                    }
-                    
-                    // Buka pengaturan Accessibility
-                    "openAccessibilitySettings" -> {
-                        try {
-                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            startActivity(intent)
-                            result.success(null)
-                        } catch (e: Exception) {
-                            Log.e("MainActivity", "Error opening accessibility settings: ${e.message}")
-                            result.error("ERROR", e.message, null)
-                        }
-                    }
-                    
-                    // Force close aplikasi target
-                    "forceCloseApp" -> {
-                        val packageName = call.argument<String>("packageName")
-                        
-                        if (packageName == null) {
-                            result.error("INVALID_ARGUMENT", "packageName is required", null)
-                            return@setMethodCallHandler
-                        }
-                        
-                        val service = ForceCloseAccessibilityService.getInstance()
-                        
-                        if (service == null) {
-                            Log.w("MainActivity", "❌ Accessibility Service not running")
-                            result.success(false)
-                            return@setMethodCallHandler
-                        }
-                        
-                        val success = service.forceCloseApp(packageName)
-                        result.success(success)
                     }
                     
                     else -> {

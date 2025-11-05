@@ -1,28 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'route.dart';
-import 'controllers/capture_controller.dart';
-import 'controllers/recording_controller.dart';
 import 'services/auto_screenshot_service.dart';
 
 /**
  * MAIN - Entry point aplikasi
  * 
  * SETUP:
- * 1. Initialize GetX controllers (CaptureController, RecordingController, AutoScreenshotService)
+ * 1. Initialize AutoScreenshotService
  * 2. Jalankan app dengan GetMaterialApp
+ * 3. Route ke MonitoringScreen untuk AI monitoring
  * 
- * CATATAN:
- * - Screenshot tidak menggunakan widget wrapper lagi
- * - Capture dilakukan di native side (MediaProjection API)
- * - Flutter hanya menampilkan UI dan menerima hasil screenshot
+ * FITUR:
+ * - Auto screenshot setiap 5 detik
+ * - AI content detection (LOW/MEDIUM/HIGH)
+ * - Realtime popup overlay intervention
+ * - App minimize to home screen
  */
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Register semua GetX controllers secara global
-  Get.put(CaptureController());
-  Get.put(RecordingController());
+  // Register GetX controllers secara global
   Get.put(AutoScreenshotService());
 
   runApp(const MyApp());
@@ -36,7 +34,7 @@ class MyApp extends StatelessWidget {
     return GetMaterialApp(
       title: 'Reflvy - AI Monitor',
       debugShowCheckedModeBanner: false,
-      initialRoute: Routes.home,
+      initialRoute: Routes.monitoring,
       getPages: AppPages.pages,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),

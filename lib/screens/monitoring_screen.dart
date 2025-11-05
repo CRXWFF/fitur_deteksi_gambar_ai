@@ -164,10 +164,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                         ),
                         const Divider(),
                         _buildInfoRow(
-                          Icons.folder,
-                          'Save Folder',
-                          _screenshotService.getSessionFolder() ??
-                              'Not created',
+                          Icons.storage,
+                          'Storage',
+                          'In-Memory',
                           Colors.orange,
                         ),
                       ],

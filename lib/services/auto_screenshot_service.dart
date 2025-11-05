@@ -1,14 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:intl/intl.dart';
 import 'app_detection_service.dart';
 import 'screen_capture_service.dart';
 import 'content_analysis_service.dart';
-import 'app_killer_service.dart';
 import 'overlay_service.dart';
 
 /**
@@ -20,7 +16,7 @@ import 'overlay_service.dart';
  * 3. Detect app yang sedang dibuka
  * 4. Analisis konten dengan AI (dummy: random LOW/MEDIUM/HIGH)
  * 5. Intervensi otomatis jika detect konten berbahaya
- * 6. Force close aplikasi target jika user klik "Tutup Aplikasi"
+ * 6. Minimize app ke home screen jika user klik "Tutup Aplikasi"
  * 7. Track semua screenshot dalam list (in-memory)
  */
 class AutoScreenshotService extends GetxController {
@@ -33,9 +29,6 @@ class AutoScreenshotService extends GetxController {
   // Service untuk analisis konten (AI dummy)
   final ContentAnalysisService _contentAnalysisService =
       ContentAnalysisService();
-
-  // Service untuk force close aplikasi
-  final AppKillerService _appKillerService = AppKillerService();
 
   // Service untuk overlay realtime
   final OverlayService _overlayService = OverlayService();
@@ -58,18 +51,14 @@ class AutoScreenshotService extends GetxController {
   // Timer untuk auto-resume monitoring jika overlay tidak merespons
   Timer? _pauseTimeoutTimer;
 
-  // Path folder untuk session ini (opsional - sekarang simpan di memory)
-  String? _sessionFolder;
-
   /**
    * START - Mulai auto screenshot dengan CHECK SEMUA PERMISSION DULU
    * 
    * FLOW:
    * 1. Check & request Screen Capture permission
    * 2. Check & request Overlay permission (SYSTEM_ALERT_WINDOW)
-   * 3. Check & request Accessibility permission (untuk force close)
-   * 4. Setup overlay event listener
-   * 5. Start monitoring
+   * 3. Setup overlay event listener
+   * 4. Start monitoring
    */
   Future<void> startAutoScreenshot() async {
     if (isRecording.value) return;
@@ -151,76 +140,15 @@ class AutoScreenshotService extends GetxController {
       }
       print('✅ Overlay permission granted');
 
-      // ✅ STEP 3: Accessibility Permission (untuk force close)
-      print('3️⃣ Checking Accessibility permission...');
-      bool accessibilityEnabled =
-          await _appKillerService.isAccessibilityServiceEnabled();
-
-      if (!accessibilityEnabled) {
-        print('⚠️ Accessibility permission not granted');
-
-        // Tampilkan dialog konfirmasi
-        bool? userWantsToContinue = await Get.dialog<bool>(
-          AlertDialog(
-            title: Row(
-              children: [
-                Icon(Icons.accessibility_new, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('Permission Required'),
-              ],
-            ),
-            content: Text(
-              'Aplikasi membutuhkan izin "Accessibility Service" untuk menutup aplikasi berbahaya secara otomatis.\n\n'
-              'Tanpa permission ini, aplikasi berbahaya tidak akan ditutup otomatis.\n\n'
-              'Aktifkan sekarang?',
-              style: TextStyle(fontSize: 14),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Get.back(result: false),
-                child: Text('Batal'),
-              ),
-              ElevatedButton(
-                onPressed: () => Get.back(result: true),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                ),
-                child: Text('Buka Settings'),
-              ),
-            ],
-          ),
-          barrierDismissible: false,
-        );
-
-        if (userWantsToContinue == true) {
-          await _appKillerService.openAccessibilitySettings();
-
-          // Tunggu user balik dari settings
-          Get.snackbar(
-            'ℹ️ Info',
-            'Aktifkan "Reflvy" di Accessibility dan kembali ke app',
-            backgroundColor: Colors.blue,
-            colorText: Colors.white,
-            duration: Duration(seconds: 5),
-          );
-        }
-
-        return; // Stop monitoring jika user tidak enable
-      }
-      print('✅ Accessibility permission granted');
-
-      // ✅ STEP 4: Setup overlay event listener
-      print('4️⃣ Setting up overlay event listener...');
+      // ✅ STEP 3: Setup overlay event listener
+      print('3️⃣ Setting up overlay event listener...');
       _overlayEventSubscription = _overlayService.overlayEvents.listen((event) {
         _handleOverlayEvent(event);
       });
       print('✅ Overlay event listener ready');
 
-      // ✅ STEP 5: Semua permission OK! Start monitoring
+      // ✅ STEP 4: Semua permission OK! Start monitoring
       print('✅ ALL PERMISSIONS GRANTED! Starting monitoring...');
-
-      // Buat folder untuk session
-      await _createSessionFolder();
 
       // Reset state
       isRecording.value = true;
@@ -282,10 +210,10 @@ class AutoScreenshotService extends GetxController {
 
     Get.snackbar(
       'Recording Stopped ⏹️',
-      'Total ${screenshotCount.value} screenshot disimpan di:\n$_sessionFolder',
+      'Total ${screenshotCount.value} screenshot tersimpan di memory',
       backgroundColor: Colors.orange,
       colorText: Colors.white,
-      duration: const Duration(seconds: 5),
+      duration: const Duration(seconds: 3),
     );
   }
 
@@ -436,7 +364,6 @@ class AutoScreenshotService extends GetxController {
           isPaused.value = false;
         }
       });
-
     } catch (e) {
       print('❌ Error showing overlay: $e');
 
@@ -469,117 +396,14 @@ class AutoScreenshotService extends GetxController {
       isPaused.value = false;
       print('✅ Monitoring RESUMED after dismiss');
     } else if (action == 'close_app') {
-      // User klik "Tutup Aplikasi"
+      // User klik "Tutup Aplikasi" - App sudah di-minimize ke home screen oleh native
       final appName = event['app_name'] as String? ?? 'Unknown';
-      print('🚫 User chose to close app: $appName');
-
-      // Force close app
-      _forceCloseTargetApp(appName);
+      print('🏠 User chose to close app: $appName (already minimized to home)');
 
       // ✅ RESUME monitoring
       isPaused.value = false;
       print('✅ Monitoring RESUMED after closing app');
     }
-  }
-
-  /**
-   * Fungsi: Force close aplikasi target
-   * Input: appName (contoh: "TikTok", "Instagram")
-   * 
-   * 1. Convert nama app ke package name
-   * 2. Panggil native Kotlin untuk force close
-   * 3. Tampilkan notifikasi ke user
-   */
-  Future<void> _forceCloseTargetApp(String appName) async {
-    try {
-      // Cek apakah Accessibility Service sudah aktif
-      bool isEnabled = await _appKillerService.isAccessibilityServiceEnabled();
-
-      if (!isEnabled) {
-        // Jika belum aktif, buka settings
-        print('⚠️ Accessibility Service not enabled');
-
-        Get.snackbar(
-          '⚠️ Permission Diperlukan',
-          'Aktifkan Accessibility Service untuk menutup aplikasi',
-          backgroundColor: Colors.orange,
-          colorText: Colors.white,
-          duration: Duration(seconds: 3),
-        );
-
-        await _appKillerService.openAccessibilitySettings();
-        return;
-      }
-
-      // Convert nama app ke package name
-      String packageName = _appKillerService.getPackageNameFromAppName(appName);
-      print('📦 Package name: $packageName');
-
-      // Force close app
-      bool success = await _appKillerService.forceCloseApp(packageName);
-
-      if (success) {
-        Get.snackbar(
-          '✅ Aplikasi Ditutup',
-          '$appName telah ditutup untuk keamanan Anda',
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
-          duration: Duration(seconds: 2),
-        );
-      } else {
-        Get.snackbar(
-          '⚠️ Gagal Menutup',
-          'Tidak dapat menutup $appName',
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: Duration(seconds: 2),
-        );
-      }
-    } catch (e) {
-      print('❌ Error closing app: $e');
-
-      Get.snackbar(
-        '❌ Error',
-        'Terjadi kesalahan: $e',
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        duration: Duration(seconds: 2),
-      );
-    }
-  }
-
-  /// Buat folder untuk session ini
-  Future<void> _createSessionFolder() async {
-    try {
-      // Get external storage directory
-      Directory? externalDir = await getExternalStorageDirectory();
-
-      if (externalDir == null) {
-        print('❌ External storage not available');
-        return;
-      }
-
-      // Buat folder dengan nama tanggal dan waktu
-      String sessionName = DateFormat(
-        'yyyy-MM-dd_HH-mm-ss',
-      ).format(DateTime.now());
-      String basePath = '${externalDir.path}/Reflvy_Screenshots';
-      _sessionFolder = '$basePath/$sessionName';
-
-      Directory sessionDir = Directory(_sessionFolder!);
-      if (!await sessionDir.exists()) {
-        await sessionDir.create(recursive: true);
-      }
-
-      print('📁 Session folder created: $_sessionFolder');
-    } catch (e) {
-      print('❌ Error creating session folder: $e');
-    }
-  }
-
-  /// Get folder path saat ini
-  String? getSessionFolder() {
-    return _sessionFolder;
   }
 
   /// Clear semua data

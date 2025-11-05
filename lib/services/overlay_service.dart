@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/services.dart';
 
 /**
@@ -47,12 +46,13 @@ class OverlayService {
    * Input:
    * - level: LOW, MEDIUM, HIGH
    * - appName: nama aplikasi (TikTok, Instagram, dll)
-   * - imageBytes: screenshot yang terdeteksi berbahaya
+   * 
+   * ✅ FIXED: Removed imageBytes to fix TransactionTooLargeException
+   * Overlay hanya tampilkan text warning, tidak perlu screenshot preview
    */
   Future<void> showOverlay({
     required String level,
     required String appName,
-    required Uint8List imageBytes,
   }) async {
     try {
       print('📢 Sending overlay to native: level=$level, app=$appName');
@@ -60,7 +60,7 @@ class OverlayService {
       await _channel.invokeMethod('showOverlay', {
         'level': level,
         'app_name': appName,
-        'image_bytes': imageBytes,
+        // ✅ NO MORE image_bytes - fixed TransactionTooLargeException
       });
 
       print('✅ Overlay request sent to native');

@@ -51,30 +51,67 @@ class ForceCloseAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Fungsi: Force close aplikasi dengan package name
-     * Method: Menggunakan Runtime.exec("am force-stop packageName")
-     * 
-     * @param packageName Package name aplikasi target (contoh: "com.zhiliaoapp.musically")
-     * @return true jika berhasil, false jika gagal
+     * Force close aplikasi target dengan otomatisasi Accessibility:
+     * - Buka halaman App Info aplikasi target
+     * - Klik tombol "Paksa berhenti" / "Force stop"
+     * - Klik tombol konfirmasi "OK" / "Force stop"
+     * Catatan: Teks tombol dapat berbeda antar vendor/locale, cari beberapa variasi.
      */
     fun forceCloseApp(packageName: String): Boolean {
+        Log.d(TAG, "🚫 Attempting to force close via Accessibility: $packageName")
+
         return try {
-            Log.d(TAG, "🚫 Attempting to force close: $packageName")
-            
-            // Execute command: am force-stop <packageName>
-            val process = Runtime.getRuntime().exec(arrayOf("am", "force-stop", packageName))
-            
-            // Tunggu proses selesai (max 2 detik)
-            val exitCode = process.waitFor()
-            
-            if (exitCode == 0) {
-                Log.d(TAG, "✅ Successfully force closed: $packageName")
-                true
-            } else {
-                Log.w(TAG, "⚠️ Force close failed with exit code: $exitCode")
-                false
+            // Buka halaman App Info
+            val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = android.net.Uri.parse("package:$packageName")
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            
+            startActivity(intent)
+
+            // Jalankan automasi klik di background thread
+            Thread {
+                // Polling maksimal ~6 detik (20x * 300ms)
+                repeat(20) {
+                    try {
+                        Thread.sleep(300)
+                    } catch (_: InterruptedException) {}
+
+                    val root = rootInActiveWindow ?: return@repeat
+
+                    // Cari tombol "Paksa berhenti" / "Force stop"
+                    val stopNodes = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
+                    stopNodes += root.findAccessibilityNodeInfosByText("Paksa berhenti")
+                    stopNodes += root.findAccessibilityNodeInfosByText("Force stop")
+                    stopNodes += root.findAccessibilityNodeInfosByText("Paksa Berhenti")
+
+                    if (stopNodes.isNotEmpty()) {
+                        val stopBtn = stopNodes.first()
+                        val clicked = stopBtn.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+                        Log.d(TAG, "🔘 Click Force Stop: $clicked")
+
+                        // Tunggu dialog konfirmasi
+                        try { Thread.sleep(250) } catch (_: InterruptedException) {}
+
+                        val confirmRoot = rootInActiveWindow ?: return@repeat
+                        val okNodes = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
+                        okNodes += confirmRoot.findAccessibilityNodeInfosByText("OK")
+                        okNodes += confirmRoot.findAccessibilityNodeInfosByText("Oke")
+                        okNodes += confirmRoot.findAccessibilityNodeInfosByText("Force stop")
+                        okNodes += confirmRoot.findAccessibilityNodeInfosByText("Paksa berhenti")
+
+                        if (okNodes.isNotEmpty()) {
+                            val okBtn = okNodes.first()
+                            val okClicked = okBtn.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+                            Log.d(TAG, "✅ Confirm Force Stop: $okClicked")
+                        }
+
+                        return@Thread
+                    }
+                }
+                Log.w(TAG, "⚠️ Could not find Force Stop button. Vendor UI may differ.")
+            }.start()
+
+            true
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error force closing app: ${e.message}")
             e.printStackTrace()

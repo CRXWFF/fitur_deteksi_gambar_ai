@@ -28,6 +28,10 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : FlutterActivity() {
     
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+    
     // Channel untuk deteksi aplikasi
     private val APP_DETECTION_CHANNEL = "com.reflvy.app/app_detection"
     
@@ -50,20 +54,37 @@ class MainActivity : FlutterActivity() {
     // BroadcastReceiver untuk overlay events
     private val overlayBroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            Log.d(TAG, "📨📨📨 BroadcastReceiver.onReceive() called! action=${intent?.action}")
+            
             when (intent?.action) {
                 OverlayService.BROADCAST_USER_DISMISSED -> {
-                    Log.d("MainActivity", "📨 User dismissed overlay")
-                    overlayEventSink?.success(mapOf(
-                        "action" to "dismissed"
-                    ))
+                    Log.d(TAG, "✅ Received BROADCAST_USER_DISMISSED")
+                    
+                    if (overlayEventSink != null) {
+                        overlayEventSink?.success(mapOf(
+                            "action" to "dismissed"
+                        ))
+                        Log.d(TAG, "📤 Event sent to Flutter: dismissed")
+                    } else {
+                        Log.e(TAG, "❌ overlayEventSink is NULL! Cannot send to Flutter")
+                    }
                 }
                 OverlayService.BROADCAST_USER_CLOSE_APP -> {
                     val appName = intent.getStringExtra("app_name") ?: "Unknown"
-                    Log.d("MainActivity", "📨 User wants to close: $appName")
-                    overlayEventSink?.success(mapOf(
-                        "action" to "close_app",
-                        "app_name" to appName
-                    ))
+                    Log.d(TAG, "✅ Received BROADCAST_USER_CLOSE_APP for: $appName")
+                    
+                    if (overlayEventSink != null) {
+                        overlayEventSink?.success(mapOf(
+                            "action" to "close_app",
+                            "app_name" to appName
+                        ))
+                        Log.d(TAG, "📤 Event sent to Flutter: close_app, app=$appName")
+                    } else {
+                        Log.e(TAG, "❌ overlayEventSink is NULL! Cannot send to Flutter")
+                    }
+                }
+                else -> {
+                    Log.w(TAG, "⚠️ Unknown broadcast action received: ${intent?.action}")
                 }
             }
         }
@@ -262,14 +283,14 @@ class MainActivity : FlutterActivity() {
                             return@setMethodCallHandler
                         }
                         
-                        // Start OverlayService
+                        Log.d(TAG, "📤 Starting OverlayService: level=$level, app=$appName")
+                        
+                        // Start OverlayService (NO MORE image_bytes - fixed TransactionTooLargeException)
                         val intent = Intent(this, OverlayService::class.java).apply {
                             action = OverlayService.ACTION_SHOW_OVERLAY
                             putExtra("level", level)
                             putExtra("app_name", appName)
-                            if (imageBytes != null) {
-                                putExtra("image_bytes", imageBytes)
-                            }
+                            // ✅ NO MORE image_bytes
                         }
                         
                         startService(intent)

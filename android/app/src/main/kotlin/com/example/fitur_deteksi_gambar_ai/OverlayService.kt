@@ -5,7 +5,9 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.ImageView
@@ -45,10 +47,10 @@ class OverlayService : Service() {
             ACTION_SHOW_OVERLAY -> {
                 val level = intent.getStringExtra("level") ?: "LOW"
                 val appName = intent.getStringExtra("app_name") ?: "Unknown"
-                val imageBytes = intent.getByteArrayExtra("image_bytes")
+                // ✅ NO MORE image_bytes - fixed TransactionTooLargeException
                 
                 Log.d(TAG, "📢 Showing overlay: level=$level, app=$appName")
-                showOverlay(level, appName, imageBytes)
+                showOverlay(level, appName)
             }
             ACTION_HIDE_OVERLAY -> {
                 Log.d(TAG, "🔽 Hiding overlay")
@@ -62,38 +64,60 @@ class OverlayService : Service() {
     /**
      * Tampilkan overlay window di atas aplikasi lain
      */
-    private fun showOverlay(level: String, appName: String, imageBytes: ByteArray?) {
+    private fun showOverlay(level: String, appName: String) {
         try {
+            // CRITICAL: Check overlay permission
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (!Settings.canDrawOverlays(this)) {
+                    Log.e(TAG, "❌ OVERLAY PERMISSION NOT GRANTED! Cannot display overlay.")
+                    return
+                } else {
+                    Log.d(TAG, "✅ Overlay permission granted, proceeding...")
+                }
+            }
+            
             // Jika sudah ada overlay, hapus dulu
             hideOverlay()
             
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            Log.d(TAG, "🪟 WindowManager obtained")
             
-            // Inflate layout overlay (kita akan buat layout sederhana)
-            overlayView = createOverlayView(level, appName, imageBytes)
+            // Inflate layout overlay
+            overlayView = createOverlayView(level, appName)
+            Log.d(TAG, "🎨 Overlay view created")
             
             // Setup WindowManager.LayoutParams untuk overlay
+            val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+            
+            Log.d(TAG, "📱 Using window type: $windowType (SDK: ${Build.VERSION.SDK_INT})")
+            
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
-                },
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                windowType,
+                // ✅ FIXED: Remove FLAG_NOT_FOCUSABLE to allow button clicks
+                // Use FLAG_NOT_TOUCH_MODAL to allow touches on overlay but pass through to background
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                        WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.CENTER
             }
             
+            Log.d(TAG, "🎯 Window flags: FLAG_NOT_TOUCH_MODAL | FLAG_LAYOUT_IN_SCREEN | FLAG_KEEP_SCREEN_ON")
+            
             // Tampilkan overlay
+            Log.d(TAG, "🎯 Adding view to WindowManager...")
             windowManager?.addView(overlayView, params)
             
-            Log.d(TAG, "✅ Overlay shown successfully")
+            Log.d(TAG, "✅✅✅ OVERLAY DISPLAYED SUCCESSFULLY! Should be visible over other apps now! ✅✅✅")
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error showing overlay: ${e.message}", e)
@@ -103,133 +127,89 @@ class OverlayService : Service() {
     /**
      * Buat view untuk overlay (native Android layout)
      */
-    private fun createOverlayView(level: String, appName: String, imageBytes: ByteArray?): android.view.View {
-        // Untuk sementara, kita buat layout programmatically
-        // Nanti bisa diganti dengan inflate dari XML jika diperlukan
+    private fun createOverlayView(level: String, appName: String): android.view.View {
+        // Inflate layout dari XML
+        val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as android.view.LayoutInflater
+        val view = inflater.inflate(R.layout.reflvy_overlay, null)
         
-        val layout = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setBackgroundColor(android.graphics.Color.parseColor("#CC000000")) // Semi-transparent black
-            setPadding(40, 40, 40, 40)
-            gravity = Gravity.CENTER
+        Log.d(TAG, "📄 Layout inflated successfully")
+        
+        // Update dynamic content
+        val tvTitle = view.findViewById<TextView>(R.id.tvTitle)
+        val tvBadge = view.findViewById<TextView>(R.id.tvBadge)
+        val tvDesc = view.findViewById<TextView>(R.id.tvDesc)
+        val btnIgnore = view.findViewById<Button>(R.id.btnIgnore)
+        val btnClose = view.findViewById<Button>(R.id.btnClose)
+        
+        // Set title
+        tvTitle.text = "⚠️ KONTEN BERBAHAYA TERDETEKSI"
+        
+        // Set badge based on level
+        tvBadge.text = level
+        val badgeColor = when (level) {
+            "LOW" -> android.graphics.Color.parseColor("#FFC107")
+            "MEDIUM" -> android.graphics.Color.parseColor("#FF9800")
+            "HIGH" -> android.graphics.Color.parseColor("#F44336")
+            else -> android.graphics.Color.GRAY
+        }
+        tvBadge.setBackgroundColor(badgeColor)
+        
+        // Set description
+        val description = when (level) {
+            "LOW" -> "Terdeteksi konten berisiko rendah di $appName."
+            "MEDIUM" -> "Terdeteksi konten berisiko sedang di $appName."
+            "HIGH" -> "Terdeteksi konten berisiko tinggi di $appName!"
+            else -> "Terdeteksi konten berbahaya di $appName."
+        }
+        tvDesc.text = description
+        
+        // Setup button click handlers
+        btnIgnore.setOnClickListener {
+            Log.d(TAG, "ℹ️ User clicked 'Abaikan' button")
+            
+            // Broadcast ke Flutter
+            val dismissIntent = Intent(BROADCAST_USER_DISMISSED)
+            sendBroadcast(dismissIntent)
+            Log.d(TAG, "📤 Broadcast sent: $BROADCAST_USER_DISMISSED")
+            
+            // Hapus overlay
+            hideOverlay()
+            stopSelf()
         }
         
-        // Icon warning
-        val icon = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_dialog_alert)
-            layoutParams = android.widget.LinearLayout.LayoutParams(200, 200).apply {
-                gravity = Gravity.CENTER
-                bottomMargin = 20
+        btnClose.setOnClickListener {
+            Log.d(TAG, "🚫 User clicked 'Tutup Aplikasi' button for: $appName")
+            
+            // Broadcast ke Flutter dengan data app_name
+            val closeIntent = Intent(BROADCAST_USER_CLOSE_APP).apply {
+                putExtra("app_name", appName)
             }
-        }
-        layout.addView(icon)
-        
-        // Title
-        val title = TextView(this).apply {
-            text = "⚠️ KONTEN BERBAHAYA TERDETEKSI"
-            textSize = 20f
-            setTextColor(android.graphics.Color.WHITE)
-            gravity = Gravity.CENTER
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = 20
+            sendBroadcast(closeIntent)
+            Log.d(TAG, "📤 Broadcast sent: $BROADCAST_USER_CLOSE_APP with app=$appName")
+            
+            // Minimize app: kirim user ke home screen
+            try {
+                val homeIntent = Intent(Intent.ACTION_MAIN)
+                homeIntent.addCategory(Intent.CATEGORY_HOME)
+                homeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                startActivity(homeIntent)
+                Log.d(TAG, "🏠 User sent to home screen (minimize)")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to minimize app: ${e.message}")
             }
-        }
-        layout.addView(title)
-        
-        // Level badge
-        val levelText = TextView(this).apply {
-            text = "Level: $level"
-            textSize = 16f
-            setTextColor(android.graphics.Color.WHITE)
-            val bgColor = when (level) {
-                "LOW" -> android.graphics.Color.parseColor("#FFC107")
-                "MEDIUM" -> android.graphics.Color.parseColor("#FF9800")
-                "HIGH" -> android.graphics.Color.parseColor("#F44336")
-                else -> android.graphics.Color.GRAY
-            }
-            setBackgroundColor(bgColor)
-            setPadding(40, 20, 40, 20)
-            gravity = Gravity.CENTER
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = 20
-            }
-        }
-        layout.addView(levelText)
-        
-        // App name
-        val appText = TextView(this).apply {
-            text = "Aplikasi: $appName"
-            textSize = 14f
-            setTextColor(android.graphics.Color.WHITE)
-            gravity = Gravity.CENTER
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = 40
-            }
-        }
-        layout.addView(appText)
-        
-        // Tombol Abaikan (hanya untuk LOW)
-        if (level == "LOW") {
-            val btnDismiss = Button(this).apply {
-                text = "Abaikan"
-                textSize = 16f
-                setBackgroundColor(android.graphics.Color.parseColor("#9E9E9E"))
-                setTextColor(android.graphics.Color.WHITE)
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = 20
-                }
-                setOnClickListener {
-                    Log.d(TAG, "ℹ️ User dismissed warning")
-                    
-                    // Broadcast ke Flutter
-                    sendBroadcast(Intent(BROADCAST_USER_DISMISSED))
-                    
-                    // Hapus overlay
-                    hideOverlay()
-                    stopSelf()
-                }
-            }
-            layout.addView(btnDismiss)
+            
+            // Hapus overlay
+            hideOverlay()
+            stopSelf()
         }
         
-        // Tombol Tutup Aplikasi
-        val btnCloseApp = Button(this).apply {
-            text = "Tutup Aplikasi"
-            textSize = 16f
-            setBackgroundColor(android.graphics.Color.parseColor("#F44336"))
-            setTextColor(android.graphics.Color.WHITE)
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            setOnClickListener {
-                Log.d(TAG, "🚫 User chose to close app: $appName")
-                
-                // Broadcast ke Flutter dengan data app_name
-                sendBroadcast(Intent(BROADCAST_USER_CLOSE_APP).apply {
-                    putExtra("app_name", appName)
-                })
-                
-                // Hapus overlay
-                hideOverlay()
-                stopSelf()
-            }
+        // Hide "Abaikan" button if level is not LOW
+        if (level != "LOW") {
+            btnIgnore.visibility = android.view.View.GONE
+            Log.d(TAG, "🔒 'Abaikan' button hidden for level: $level")
         }
-        layout.addView(btnCloseApp)
         
-        return layout
+        return view
     }
     
     /**

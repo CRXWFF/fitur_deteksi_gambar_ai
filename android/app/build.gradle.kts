@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.fitur_deteksi_gambar_ai"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973"  // Fixed: Use latest NDK version
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

@@ -419,7 +419,7 @@ class AutoScreenshotService extends GetxController {
       await _overlayService.showOverlay(
         level: levelString,
         appName: appName,
-        imageBytes: imageBytes,
+        // ✅ NO MORE imageBytes - fixed TransactionTooLargeException
       );
 
       print('✅ Overlay displayed, waiting for user action...');
